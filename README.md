@@ -103,7 +103,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now pianoteq-touch
 loginctl enable-linger $USER     # once, so it starts at boot
 # Desktop icon to bring the app back after "Exit app":
-cp pianoteq-touch.desktop ~/Desktop/
+cp pianoteq-touch.desktop ~/Desktop/ && chmod +x ~/Desktop/pianoteq-touch.desktop
 ```
 
 If you change the unit file after a `git pull`, copy it again and run
