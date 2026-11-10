@@ -1,0 +1,18 @@
+[Unit]
+Description=Pianoteq touchscreen remote (3.5" LCD)
+After=network.target
+# If Pianoteq itself runs as a systemd unit, uncomment and match its name:
+# After=pianoteq.service
+# Wants=pianoteq.service
+
+[Service]
+Type=simple
+User=pi
+# Access to /dev/fb* and /dev/input/event*
+SupplementaryGroups=video input tty
+ExecStart=/usr/bin/python3 /home/pi/pianoteq-touch/pianoteq_touch.py --backend fb
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

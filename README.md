@@ -1,0 +1,111 @@
+# pianoteq-touch
+
+A big-button touchscreen remote for a headless Pianoteq on a Raspberry Pi with a
+3.5" 480×320 SPI LCD (MHS-3.5" / ILI9486 + XPT2046/ADS7846 touch).
+
+It talks to Pianoteq's JSON-RPC server, using the same calls as
+[remote-for-pianoteq](https://github.com/shuhaowu/remote-for-pianoteq):
+
+| Control | RPC |
+|---|---|
+| Volume −/+ (hold to repeat), or tap/drag the bar | `setParameters` `{id: "volume", normalized_value}` |
+| Metronome ON/OFF | `setMetronome {enabled}` |
+| Tempo −/+ (Pianoteq's tempo menu steps, 40–208) | `setMetronome {bpm}` |
+| Time signature (tap to cycle) | `setMetronome {timesig}` |
+| Accent on first beat | `setMetronome {accentuate}` |
+| Click volume −/+ (mute, −35 … +20 dB) | `setMetronome {volume_db}` |
+
+The display re-reads Pianoteq every 2 s, so changes made elsewhere (web remote,
+MIDI) show up. The top line shows the current preset, with a green or red
+connection dot.
+
+![screenshot](screenshot.png)
+
+## Install
+
+```bash
+sudo apt install python3-pygame python3-numpy python3-evdev fonts-dejavu-core
+```
+
+Copy `pianoteq_touch.py` to the Pi, e.g. `/home/pi/pianoteq-touch/`.
+
+Pianoteq must be running with its JSON-RPC server enabled. By default it listens
+on `127.0.0.1:8081`:
+
+```bash
+"Pianoteq 9" --headless --serve ""
+```
+
+## Display modes
+
+- **`--backend fb`** (default when no X/Wayland is running): draws directly to
+  the LCD's framebuffer and reads the touch panel with evdev. Use this on a
+  console-only / Lite install. It picks the framebuffer that is 480×320
+  automatically; override with `--fbdev /dev/fb1`. If your framebuffer is in
+  portrait (320×480), add `--rotate 90` (or `270`).
+- **`--backend window --fullscreen`**: use this if the LCD runs an X desktop
+  (as with the goodtft `LCD-show` scripts). X handles touch for you, so you
+  don't need to calibrate.
+
+## First run: touch calibration (fb mode)
+
+Run this once from an SSH session:
+
+```bash
+python3 pianoteq_touch.py --calibrate
+```
+
+Tap the three crosshairs. The result is saved in `~/.config/pianoteq-touch.json`,
+along with any `--rotate` setting. If no calibration has been saved yet, the
+program runs this step on its own. If taps land in the wrong place, run
+`--calibrate` again.
+
+You need read/write access to `/dev/fb*` and `/dev/input/event*`. Either be in
+the `video` and `input` groups (`sudo usermod -aG video,input pi`, then log in
+again) or run the program with sudo. If you run it as root, the calibration file
+goes in `/root/.config`.
+
+## Start on boot
+
+**If the LCD runs an X desktop** (LCD-show + autologin + `startx`), use the
+user-level unit. It needs no sudo and runs fullscreen on `:0`, using X's
+existing touch calibration. Change `--pianoteq-port` in the unit if Pianoteq
+isn't on 8080.
+
+```bash
+cp pianoteq-touch-x11.service ~/.config/systemd/user/pianoteq-touch.service
+systemctl --user daemon-reload
+systemctl --user enable --now pianoteq-touch
+loginctl enable-linger $USER     # once, so it starts at boot
+```
+
+**Console-only (framebuffer mode):**
+
+```bash
+sudo cp pianoteq-touch.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now pianoteq-touch
+```
+
+Edit `User=` and the path in the unit file first if they aren't `pi` and
+`/home/pi/pianoteq-touch`. If the service starts before you have calibrated, the
+crosshairs appear on the LCD and you can calibrate there.
+
+### Stop the console from drawing over the screen
+
+If the Linux text console is also mapped to the LCD, its cursor or a login prompt
+can show through. The app hides the cursor and redraws every 5 s, but a
+cleaner fix is to keep the console on HDMI: add `fbcon=map:0` to
+`/boot/firmware/cmdline.txt`, or disable the getty with
+`sudo systemctl disable getty@tty1`.
+
+## Options
+
+```
+--pianoteq-host 127.0.0.1   --pianoteq-port 8081
+--backend auto|fb|window    --fullscreen
+--fbdev /dev/fbN            --touchdev /dev/input/eventN
+--rotate 0|90|180|270       --calibrate
+```
+
+Press Esc or q to quit in window mode.
