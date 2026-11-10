@@ -109,3 +109,7 @@ cleaner fix is to keep the console on HDMI: add `fbcon=map:0` to
 ```
 
 Press Esc or q to quit in window mode.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
