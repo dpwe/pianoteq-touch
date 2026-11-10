@@ -33,6 +33,9 @@ import time
 import urllib.request
 
 os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
+# Don't let SDL swallow SIGTERM/SIGINT (it turns them into quit events, which
+# nobody reads while we're waiting for X) -- systemctl stop must work.
+os.environ.setdefault("SDL_NO_SIGNAL_HANDLERS", "1")
 import pygame  # noqa: E402
 
 W, H = 480, 320
