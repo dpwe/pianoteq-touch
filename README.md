@@ -19,6 +19,15 @@ The display re-reads Pianoteq every 2 s, so changes made elsewhere (web remote,
 MIDI) show up. The top line shows the current preset, with a green or red
 connection dot.
 
+**Shutdown** (top right) asks for confirmation, blanks the LCD and runs
+`systemctl poweroff`. That works without sudo when the user has an active
+console session, as with autologin + `startx`. Check with
+`busctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager CanPowerOff`,
+which should print `"yes"`. To use a different command, pass `--shutdown-cmd`,
+e.g. `--shutdown-cmd "sudo -n /sbin/poweroff"`; `--shutdown-cmd ""` hides the
+button. Under X the app keeps its black window up until X stops, so the panel
+is left black rather than showing the desktop after power-off.
+
 ![screenshot](screenshot.png)
 
 ## Install
@@ -106,6 +115,7 @@ cleaner fix is to keep the console on HDMI: add `fbcon=map:0` to
 --backend auto|fb|window    --fullscreen
 --fbdev /dev/fbN            --touchdev /dev/input/eventN
 --rotate 0|90|180|270       --calibrate
+--shutdown-cmd "systemctl poweroff"
 ```
 
 Press Esc or q to quit in window mode.

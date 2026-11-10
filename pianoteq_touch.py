@@ -238,16 +238,48 @@ class WindowBackend:
 
 
 def find_framebuffer():
-    """Pick the framebuffer whose size is 480x320 / 320x480 (the SPI LCD)."""
-    for path in sorted(glob.glob("/sys/class/graphics/fb*")):
+    """Pick the SPI LCD's framebuffer: prefer an fbtft driver (fb_ili9486
+    etc.) or a 480x320 / 320x480 device that isn't the HDMI/GPU one."""
+    best, best_score = None, -1
+    for path in sorted(glob.glob("/sys/class/graphics/fb[0-9]*")):
         try:
             with open(os.path.join(path, "virtual_size")) as f:
                 w, h = (int(v) for v in f.read().strip().split(","))
-        except OSError:
+            with open(os.path.join(path, "name")) as f:
+                name = f.read().strip().lower()
+        except (OSError, ValueError):
             continue
+        score = 0
         if (w, h) in ((W, H), (H, W)):
-            return "/dev/" + os.path.basename(path)
+            score += 1
+        if name.startswith("fb_") or "ili" in name:
+            score += 2
+        if "bcm2708" in name or "vc4" in name:   # HDMI / GPU framebuffer
+            score -= 1
+        if score > best_score:
+            best, best_score = "/dev/" + os.path.basename(path), score
+    if best:
+        return best
     return "/dev/fb1" if os.path.exists("/dev/fb1") else "/dev/fb0"
+
+
+def blank_lcd(fbdev=None):
+    """Write black straight into the LCD framebuffer (best effort)."""
+    try:
+        fbdev = fbdev or find_framebuffer()
+        sysfs = "/sys/class/graphics/" + os.path.basename(fbdev)
+        with open(sysfs + "/virtual_size") as f:
+            h = int(f.read().strip().split(",")[1])
+        try:
+            with open(sysfs + "/stride") as f:
+                stride = int(f.read().strip())
+        except OSError:
+            with open(sysfs + "/bits_per_pixel") as f:
+                stride = W * int(f.read().strip()) // 8
+        with open(fbdev, "r+b", buffering=0) as fb:
+            fb.write(b"\0" * (stride * h))
+    except Exception as e:
+        print("Could not blank LCD:", e, file=sys.stderr)
 
 
 def find_touch_device():
@@ -505,8 +537,14 @@ class App:
     REPEAT_DELAY = 0.45
     REPEAT_RATE = 0.12
 
-    def __init__(self, backend, state, worker):
+    CONFIRM_TIMEOUT = 10.0
+
+    def __init__(self, backend, state, worker, shutdown_cmd=None):
         self.b, self.s, self.w = backend, state, worker
+        self.shutdown_cmd = shutdown_cmd
+        self.confirm_until = 0.0      # shutdown dialog open while time < this
+        self.shutting_down = False
+        self.error_msg, self.error_until = "", 0.0
         pygame.font.init()
         self.fonts = make_fonts()
         self.pressed = None
@@ -542,6 +580,15 @@ class App:
             Button(self.r_acc, self.toggle_accent),
             Button(self.r_clk_minus, lambda: self.step_click(-1), True),
             Button(self.r_clk_plus, lambda: self.step_click(+1), True),
+        ]
+        if shutdown_cmd:
+            self.r_power = R(W - 132, 2, 104, 26)
+            self.buttons.append(Button(self.r_power, self.open_confirm))
+        # Shutdown confirmation dialog
+        self.r_dlg = R(30, 40, 420, 250)
+        self.dlg_buttons = [
+            Button(R(50, 190, 180, 80), self.close_confirm),
+            Button(R(250, 190, 180, 80), self.do_shutdown),
         ]
         self.touch_pos = (0, 0)
 
@@ -610,6 +657,45 @@ class App:
         self.w.send("metronome", volume_db=nxt)
         self.changed()
 
+    # -- shutdown -------------------------------------------------------
+    def confirm_open(self):
+        return time.time() < self.confirm_until
+
+    def open_confirm(self):
+        self.confirm_until = time.time() + self.CONFIRM_TIMEOUT
+        self.pressed = None
+
+    def close_confirm(self):
+        self.confirm_until = 0.0
+        self.pressed = None
+
+    def do_shutdown(self):
+        """Blank the screen and power off.  The black window is kept up while
+        the system stops (see main), so the LCD is left showing black."""
+        self.confirm_until = 0.0
+        self.pressed = None
+        s = self.b.surface
+        s.fill((0, 0, 0))
+        draw_text(s, "Shutting down...", self.fonts["med"], DIM, (W // 2, H // 2))
+        self.b.flip()
+        time.sleep(1.5)
+        self.shutting_down = True
+        self.draw()
+        import shlex
+        import subprocess
+        try:
+            r = subprocess.run(shlex.split(self.shutdown_cmd), capture_output=True,
+                               text=True, timeout=30)
+            err = None if r.returncode == 0 else (r.stderr.strip() or "exit %d" % r.returncode)
+        except Exception as e:
+            err = str(e)
+        if err:
+            print("Shutdown failed:", err, file=sys.stderr)
+            self.shutting_down = False
+            self.error_msg = "Shutdown failed: " + err.splitlines()[-1]
+            self.error_until = time.time() + 6
+            self.dirty = True
+
     # -- input ----------------------------------------------------------
     def handle(self, ev):
         kind = ev[0]
@@ -618,8 +704,11 @@ class App:
         pos = ev[1]
         self.touch_pos = pos
         now = time.time()
+        if self.shutting_down:
+            return True
+        buttons = self.dlg_buttons if self.confirm_open() else self.buttons
         if kind == "down":
-            for btn in self.buttons:
+            for btn in buttons:
                 if btn.rect.collidepoint(pos):
                     self.pressed = btn
                     self.press_time = now
@@ -665,13 +754,21 @@ class App:
             preset = self.s.preset
             vol = self.s.volume
             met = dict(self.s.met)
+        if self.shutting_down:
+            s.fill((0, 0, 0))
+            self.b.flip()
+            return
         s.fill(BG)
 
         # Status bar
         name = preset if connected else "Waiting for Pianoteq..."
         img = f["small"].render(name, True, TEXT if connected else DIM)
-        s.blit(img, (8, (self.r_status.h - img.get_height()) // 2))
+        name_w = (self.r_power.x - 16) if self.shutdown_cmd else (W - 36)
+        s.blit(img, (8, (self.r_status.h - img.get_height()) // 2),
+               area=pygame.Rect(0, 0, name_w, img.get_height()))
         pygame.draw.circle(s, GREEN if connected else RED, (W - 14, 15), 6)
+        if self.shutdown_cmd:
+            self.panel(self.r_power, (90, 40, 40), "Shutdown", f["small"])
 
         # Volume
         self.pm_button(self.r_vol_minus, False)
@@ -722,6 +819,27 @@ class App:
         label = "mute" if db <= -96 else "{:+g}dB".format(db)
         draw_text(s, label, f["med"], TEXT, (self.r_clk.centerx, self.r_clk.y + 62))
 
+        if self.confirm_open():
+            shade = pygame.Surface((W, H), pygame.SRCALPHA)
+            shade.fill((0, 0, 0, 170))
+            s.blit(shade, (0, 0))
+            pygame.draw.rect(s, PANEL, self.r_dlg, border_radius=14)
+            pygame.draw.rect(s, DIM, self.r_dlg, 2, border_radius=14)
+            draw_text(s, "Shut down the Pi?", f["big"], TEXT,
+                      (self.r_dlg.centerx, self.r_dlg.y + 50))
+            draw_text(s, "Wait ~20 s after the screen goes black to unplug.",
+                      f["small"], DIM, (self.r_dlg.centerx, self.r_dlg.y + 100))
+            cancel, ok = self.dlg_buttons
+            self.panel(cancel.rect, PANEL_DOWN, "Cancel", f["med"])
+            self.panel(ok.rect, RED, "Shut down", f["med"])
+
+        if time.time() < self.error_until:
+            r = pygame.Rect(0, H - 34, W, 34)
+            pygame.draw.rect(s, RED, r)
+            img = f["small"].render(self.error_msg, True, TEXT)
+            s.blit(img, (8, r.y + (r.h - img.get_height()) // 2),
+                   area=pygame.Rect(0, 0, W - 16, img.get_height()))
+
         self.b.flip()
 
     # -- main loop -------------------------------------------------------
@@ -734,6 +852,12 @@ class App:
             with self.s.lock:
                 v = self.s.version
             now = time.time()
+            if self.confirm_until and now >= self.confirm_until:
+                self.close_confirm()   # dialog timed out
+                self.dirty = True
+            if self.error_until and now >= self.error_until:
+                self.error_until = 0.0
+                self.dirty = True
             # Redraw on changes; also every few seconds in case the console
             # scribbled over the framebuffer.
             if self.dirty or v != self.last_version or now - self.last_full_flush > 5:
@@ -776,6 +900,9 @@ def main():
     ap.add_argument("--calibrate", action="store_true",
                     help="run touch calibration (fb mode) and save it")
     ap.add_argument("--fullscreen", action="store_true", help="fullscreen in window mode")
+    ap.add_argument("--shutdown-cmd", default="systemctl poweroff",
+                    help='command run by the Shutdown button (default: "%(default)s"; '
+                         '"" hides the button)')
     args = ap.parse_args()
 
     backend_name = args.backend
@@ -804,11 +931,41 @@ def main():
     state = State()
     worker = Worker(Pianoteq(args.pianoteq_host, args.pianoteq_port), state)
     worker.start()
+    app = App(backend, state, worker, shutdown_cmd=args.shutdown_cmd or None)
+
+    def lcd_dev():
+        return getattr(backend, "fbdev", None) or args.fbdev or cfg.get("fbdev")
+
+    def on_sigterm(signum, frame):
+        if not app.shutting_down:
+            raise KeyboardInterrupt
+        if isinstance(backend, FramebufferBackend):
+            os._exit(0)          # we drew black straight to the LCD already
+        # Under X: if this window closed now, X would repaint the desktop onto
+        # the LCD and that image would stay there after power-off.  So keep the
+        # black window up until X itself is killed (pygame then dies with it),
+        # with a fallback exit in case X outlives us.
+        if not getattr(on_sigterm, "armed", False):
+            on_sigterm.armed = True
+
+            def give_up():
+                blank_lcd(lcd_dev())
+                os._exit(0)
+            threading.Timer(15, give_up).start()
+
+    import signal
+    signal.signal(signal.SIGTERM, on_sigterm)
     try:
-        App(backend, state, worker).run()
+        app.run()
     except KeyboardInterrupt:
         pass
+    except pygame.error:
+        if not app.shutting_down:
+            raise
     finally:
+        if app.shutting_down:
+            blank_lcd(lcd_dev())
+            os._exit(0)
         backend.close()
 
 
