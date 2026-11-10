@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Pianoteq Touch
+Comment=Restart the Pianoteq touchscreen remote
+Exec=systemctl --user start pianoteq-touch
+Icon=multimedia-volume-control
+Terminal=false
+Categories=AudioVideo;Audio;

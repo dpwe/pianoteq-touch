@@ -10,8 +10,10 @@ Type=simple
 Environment=DISPLAY=:0
 Environment=XAUTHORITY=%h/.Xauthority
 ExecStart=/usr/bin/python3 %h/github/pianoteq-touch/pianoteq_touch.py --backend window --fullscreen --pianoteq-port 8080
-# Retries until X and Pianoteq are up.
-Restart=always
+# Retries until X is up (and after crashes), but "Exit app" exits cleanly and
+# stays closed; start it again with the desktop icon or
+# `systemctl --user start pianoteq-touch`.
+Restart=on-failure
 RestartSec=3
 
 [Install]

@@ -585,11 +585,13 @@ class App:
             self.r_power = R(W - 132, 2, 104, 26)
             self.buttons.append(Button(self.r_power, self.open_confirm))
         # Shutdown confirmation dialog
-        self.r_dlg = R(30, 40, 420, 250)
+        self.r_dlg = R(10, 40, 460, 250)
         self.dlg_buttons = [
-            Button(R(50, 190, 180, 80), self.close_confirm),
-            Button(R(250, 190, 180, 80), self.do_shutdown),
+            Button(R(28, 190, 136, 80), self.close_confirm),
+            Button(R(172, 190, 136, 80), self.quit_app),
+            Button(R(316, 190, 136, 80), self.do_shutdown),
         ]
+        self.quit_requested = False
         self.touch_pos = (0, 0)
 
     # -- actions --------------------------------------------------------
@@ -664,6 +666,13 @@ class App:
     def open_confirm(self):
         self.confirm_until = time.time() + self.CONFIRM_TIMEOUT
         self.pressed = None
+
+    def quit_app(self):
+        """Exit cleanly (status 0) so the X desktop shows; the user unit only
+        restarts on failure, so it stays closed."""
+        self.confirm_until = 0.0
+        self.pressed = None
+        self.quit_requested = True
 
     def close_confirm(self):
         self.confirm_until = 0.0
@@ -829,8 +838,9 @@ class App:
                       (self.r_dlg.centerx, self.r_dlg.y + 50))
             draw_text(s, "Wait ~20 s after the screen goes black to unplug.",
                       f["small"], DIM, (self.r_dlg.centerx, self.r_dlg.y + 100))
-            cancel, ok = self.dlg_buttons
+            cancel, quit_, ok = self.dlg_buttons
             self.panel(cancel.rect, PANEL_DOWN, "Cancel", f["med"])
+            self.panel(quit_.rect, (50, 90, 150), "Exit app", f["med"])
             self.panel(ok.rect, RED, "Shut down", f["med"])
 
         if time.time() < self.error_until:
@@ -848,6 +858,8 @@ class App:
             for ev in self.b.events():
                 if not self.handle(ev):
                     return
+            if self.quit_requested:
+                return
             self.tick_repeat()
             with self.s.lock:
                 v = self.s.version

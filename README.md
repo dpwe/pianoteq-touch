@@ -28,6 +28,10 @@ e.g. `--shutdown-cmd "sudo -n /sbin/poweroff"`; `--shutdown-cmd ""` hides the
 button. Under X the app keeps its black window up until X stops, so the panel
 is left black rather than showing the desktop after power-off.
 
+The same dialog has **Exit app**, which quits back to the X desktop. To start
+the app again, double-click the *Pianoteq Touch* desktop icon (see below), run
+`systemctl --user start pianoteq-touch`, or reboot.
+
 ![screenshot](screenshot.png)
 
 ## Install
@@ -98,7 +102,12 @@ cp pianoteq-touch-x11.service ~/.config/systemd/user/pianoteq-touch.service
 systemctl --user daemon-reload
 systemctl --user enable --now pianoteq-touch
 loginctl enable-linger $USER     # once, so it starts at boot
+# Desktop icon to bring the app back after "Exit app":
+cp pianoteq-touch.desktop ~/Desktop/
 ```
+
+If you change the unit file after a `git pull`, copy it again and run
+`systemctl --user daemon-reload`.
 
 **Console-only (framebuffer mode):**
 
