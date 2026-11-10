@@ -585,11 +585,11 @@ class App:
             self.r_power = R(W - 132, 2, 104, 26)
             self.buttons.append(Button(self.r_power, self.open_confirm))
         # Shutdown confirmation dialog
-        self.r_dlg = R(10, 40, 460, 250)
+        self.r_dlg = R(4, 40, 472, 250)
         self.dlg_buttons = [
-            Button(R(28, 190, 136, 80), self.close_confirm),
-            Button(R(172, 190, 136, 80), self.quit_app),
-            Button(R(316, 190, 136, 80), self.do_shutdown),
+            Button(R(12, 190, 148, 80), self.close_confirm),
+            Button(R(166, 190, 148, 80), self.quit_app),
+            Button(R(320, 190, 148, 80), self.do_shutdown),
         ]
         self.quit_requested = False
         self.touch_pos = (0, 0)
@@ -749,7 +749,10 @@ class App:
         pygame.draw.rect(surf, PANEL_DOWN if down else (color or PANEL), rect,
                          border_radius=10)
         if label is not None:
-            draw_text(surf, label, font or self.fonts["med"], text_color, rect.center)
+            font = font or self.fonts["med"]
+            if font.size(label)[0] > rect.w - 12:   # too wide: step down a size
+                font = self.fonts["small"]
+            draw_text(surf, label, font, text_color, rect.center)
 
     def pm_button(self, rect, plus):
         self.panel(rect)
