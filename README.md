@@ -36,7 +36,19 @@ is left black rather than showing the desktop after power-off.
 sudo apt install python3-pygame python3-numpy python3-evdev fonts-dejavu-core
 ```
 
-Copy `pianoteq_touch.py` to the Pi, e.g. `/home/pi/pianoteq-touch/`.
+Clone the repo on the Pi. The unit files expect it in `~/github/pianoteq-touch`:
+
+```bash
+mkdir -p ~/github && cd ~/github
+git clone https://github.com/dpwe/pianoteq-touch.git
+```
+
+To update later:
+
+```bash
+cd ~/github/pianoteq-touch && git pull
+systemctl --user restart pianoteq-touch
+```
 
 Pianoteq must be running with its JSON-RPC server enabled. By default it listens
 on `127.0.0.1:8081`:
@@ -97,7 +109,7 @@ sudo systemctl enable --now pianoteq-touch
 ```
 
 Edit `User=` and the path in the unit file first if they aren't `pi` and
-`/home/pi/pianoteq-touch`. If the service starts before you have calibrated, the
+`/home/pi/github/pianoteq-touch`. If the service starts before you have calibrated, the
 crosshairs appear on the LCD and you can calibrate there.
 
 ### Stop the console from drawing over the screen

@@ -1,5 +1,5 @@
 # User-level unit for when the LCD runs an X desktop (e.g. LCD-show + startx).
-# Install:  cp pianoteq-touch-x11.service ~/.config/systemd/user/pianoteq-touch.service
+# Install:  cd ~/github/pianoteq-touch && cp pianoteq-touch-x11.service ~/.config/systemd/user/pianoteq-touch.service
 #           systemctl --user daemon-reload && systemctl --user enable --now pianoteq-touch
 # (needs `loginctl enable-linger $USER` to start at boot without an SSH login)
 [Unit]
@@ -9,7 +9,7 @@ Description=Pianoteq touchscreen remote (fullscreen on X display :0)
 Type=simple
 Environment=DISPLAY=:0
 Environment=XAUTHORITY=%h/.Xauthority
-ExecStart=/usr/bin/python3 %h/pianoteq-touch/pianoteq_touch.py --backend window --fullscreen --pianoteq-port 8080
+ExecStart=/usr/bin/python3 %h/github/pianoteq-touch/pianoteq_touch.py --backend window --fullscreen --pianoteq-port 8080
 # Retries until X and Pianoteq are up.
 Restart=always
 RestartSec=3
