@@ -206,7 +206,26 @@ class WindowBackend:
     """Regular pygame window; mouse/touch arrive as mouse events."""
 
     def __init__(self, fullscreen):
-        pygame.display.init()
+        # When started at boot (systemd) we may run before X is up.  SDL would
+        # then silently fall back to its "offscreen" driver and draw nowhere,
+        # so pin the driver to X11/Wayland and wait for the display to appear.
+        if "SDL_VIDEODRIVER" not in os.environ and sys.platform.startswith("linux"):
+            if os.environ.get("WAYLAND_DISPLAY"):
+                os.environ["SDL_VIDEODRIVER"] = "wayland,x11"
+            elif os.environ.get("DISPLAY"):
+                os.environ["SDL_VIDEODRIVER"] = "x11"
+        waited = False
+        while True:
+            try:
+                pygame.display.init()
+                break
+            except pygame.error as e:
+                if not waited:
+                    print("Waiting for display ({})...".format(e), file=sys.stderr)
+                    waited = True
+                time.sleep(2)
+        if waited:
+            time.sleep(3)   # give the window manager / desktop a moment to start
         flags = pygame.FULLSCREEN if fullscreen else 0
         self.screen = pygame.display.set_mode((W, H), flags)
         pygame.display.set_caption("Pianoteq Touch")
